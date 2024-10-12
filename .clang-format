@@ -2,8 +2,8 @@
 BasedOnStyle: Microsoft
 
 IndentWidth: 2
-MaxEmptyLinesToKeep: 1
-ColumnLimit: 165
+MaxEmptyLinesToKeep: 2
+ColumnLimit: 100
 InsertNewlineAtEOF: true
 
 SortIncludes: Never
@@ -13,15 +13,13 @@ AllowShortFunctionsOnASingleLine: Inline
 BinPackArguments: false
 BinPackParameters: false
 
-AllowShortBlocksOnASingleLine: Never
-
 Cpp11BracedListStyle: true
-AlignAfterOpenBracket: BlockIndent
+AlignAfterOpenBracket: AlwaysBreak
 ContinuationIndentWidth: 2
 BracedInitializerIndentWidth: 2
 InsertTrailingCommas: Wrapped
 AlignOperands: DontAlign
-AlwaysBreakTemplateDeclarations : Yes
+AlwaysBreakTemplateDeclarations: true
 
 BreakConstructorInitializers: BeforeComma
 BreakInheritanceList: BeforeComma

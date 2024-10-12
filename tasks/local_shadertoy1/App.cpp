@@ -8,6 +8,7 @@
 App::App()
   : resolution{1280, 720}
   , useVsync{true}
+  , parameters_{.resolution = resolution, .mouseCoordinates = {0, 0}, .timedelta = 0.}
 {
   // First, we need to initialize Vulkan, which is not trivial because
   // extensions are required for just about anything.
@@ -138,8 +139,7 @@ void App::drawFrame()
         vk::AccessFlagBits2::eTransferWrite,
         // ...and want it to have the appropriate layout.
         vk::ImageLayout::eTransferDstOptimal,
-        vk::ImageAspectFlagBits::eColor
-      );
+        vk::ImageAspectFlagBits::eColor);
       // The set_state doesn't actually record any commands, they are deferred to
       // the moment you call flush_barriers.
       // As with set_state, Etna sometimes flushes on it's own.
@@ -148,21 +148,26 @@ void App::drawFrame()
       etna::flush_barriers(currentCmdBuf);
 
       // TODO: Record your commands here!
-      auto computeInfo = etna::get_shader_program("shadertoy");
+      const auto computeInfo = etna::get_shader_program("shadertoy");
 
-      auto descriptors = etna::create_descriptor_set(
-        computeInfo.getDescriptorLayoutId(0), currentCmdBuf, {etna::Binding{0, tempImage_.genBinding(sampler_.get(), vk::ImageLayout::eGeneral)}}
-      );
+      const auto descriptors = etna::create_descriptor_set(
+        computeInfo.getDescriptorLayoutId(0),
+        currentCmdBuf,
+        {etna::Binding{0, tempImage_.genBinding(sampler_.get(), vk::ImageLayout::eGeneral)}});
 
-      auto vkSet = descriptors.getVkSet();
+      const auto vkSet = descriptors.getVkSet();
 
       currentCmdBuf.bindPipeline(vk::PipelineBindPoint::eCompute, pipeline_.getVkPipeline());
-      currentCmdBuf.bindDescriptorSets(vk::PipelineBindPoint::eCompute, pipeline_.getVkPipelineLayout(), 0, 1, &vkSet, 0, nullptr);
+      currentCmdBuf.bindDescriptorSets(
+        vk::PipelineBindPoint::eCompute, pipeline_.getVkPipelineLayout(), 0, 1, &vkSet, 0, nullptr);
 
-      auto currentTimeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() - startTime_).count();
+      const auto currentTimeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                       std::chrono::system_clock::now() - startTime_)
+                                       .count();
       parameters_ = {
-        .resolution = glm::vec2(resolution.x, resolution.y), .mouseCoordinates = osWindow.get()->mouse.freePos, .timedelta = currentTimeMillis / 1000.f
-      };
+        .resolution = glm::vec2(resolution.x, resolution.y),
+        .mouseCoordinates = osWindow.get()->mouse.freePos,
+        .timedelta = currentTimeMillis / 1000.f};
 
       etna::set_state(
         currentCmdBuf,
@@ -170,10 +175,14 @@ void App::drawFrame()
         vk::PipelineStageFlagBits2::eComputeShader,
         vk::AccessFlagBits2::eShaderWrite,
         vk::ImageLayout::eGeneral,
-        vk::ImageAspectFlagBits::eColor
-      );
+        vk::ImageAspectFlagBits::eColor);
 
-      currentCmdBuf.pushConstants(pipeline_.getVkPipelineLayout(), vk::ShaderStageFlagBits::eCompute, 0, sizeof(parameters_), &parameters_);
+      currentCmdBuf.pushConstants(
+        pipeline_.getVkPipelineLayout(),
+        vk::ShaderStageFlagBits::eCompute,
+        0,
+        sizeof(parameters_),
+        &parameters_);
 
       etna::flush_barriers(currentCmdBuf);
       currentCmdBuf.dispatch(resolution.x / 32, resolution.y / 32, 1);
@@ -184,26 +193,31 @@ void App::drawFrame()
         vk::PipelineStageFlagBits2::eBlit,
         vk::AccessFlagBits2::eTransferRead,
         vk::ImageLayout::eTransferSrcOptimal,
-        vk::ImageAspectFlagBits::eColor
-      );
+        vk::ImageAspectFlagBits::eColor);
 
       etna::flush_barriers(currentCmdBuf);
 
-      auto subresource = vk::ImageSubresourceLayers{vk::ImageAspectFlagBits::eColor, 0, 0, 1};
-      auto offsets = VULKAN_HPP_NAMESPACE::ArrayWrapper1D<VULKAN_HPP_NAMESPACE::Offset3D, 2>{
-        {vk::Offset3D{0, 0, 0}, vk::Offset3D{static_cast<int32_t>(resolution.x), static_cast<int32_t>(resolution.y), 1}}
-      };
+      constexpr auto SUBRESOURCE =
+        vk::ImageSubresourceLayers{vk::ImageAspectFlagBits::eColor, 0, 0, 1};
+      const auto offsets = VULKAN_HPP_NAMESPACE::ArrayWrapper1D<VULKAN_HPP_NAMESPACE::Offset3D, 2>{
+        {vk::Offset3D{0, 0, 0},
+         vk::Offset3D{static_cast<int32_t>(resolution.x), static_cast<int32_t>(resolution.y), 1}}};
 
-      vk::ImageBlit region = {
-        .srcSubresource = subresource,
+      const vk::ImageBlit region = {
+        .srcSubresource = SUBRESOURCE,
         .srcOffsets = offsets,
-        .dstSubresource = subresource,
+        .dstSubresource = SUBRESOURCE,
         .dstOffsets = offsets,
       };
 
       currentCmdBuf.blitImage(
-        tempImage_.get(), vk::ImageLayout::eTransferSrcOptimal, backbuffer, vk::ImageLayout::eTransferDstOptimal, 1, &region, vk::Filter::eLinear
-      );
+        tempImage_.get(),
+        vk::ImageLayout::eTransferSrcOptimal,
+        backbuffer,
+        vk::ImageLayout::eTransferDstOptimal,
+        1,
+        &region,
+        vk::Filter::eLinear);
 
       // At the end of "rendering", we are required to change how the pixels of the
       // swpchain image are laid out in memory to something that is appropriate
@@ -215,8 +229,7 @@ void App::drawFrame()
         vk::PipelineStageFlagBits2::eColorAttachmentOutput,
         {},
         vk::ImageLayout::ePresentSrcKHR,
-        vk::ImageAspectFlagBits::eColor
-      );
+        vk::ImageAspectFlagBits::eColor);
       // And of course flush the layout transition.
       etna::flush_barriers(currentCmdBuf);
     }
@@ -225,7 +238,8 @@ void App::drawFrame()
     // We are done recording GPU commands now and we can send them to be executed by the GPU.
     // Note that the GPU won't start executing our commands before the semaphore is
     // signalled, which will happen when the OS says that the next swapchain image is ready.
-    auto renderingDone = commandManager->submit(std::move(currentCmdBuf), std::move(backbufferAvailableSem));
+    auto renderingDone =
+      commandManager->submit(std::move(currentCmdBuf), std::move(backbufferAvailableSem));
 
     // Finally, present the backbuffer the screen, but only after the GPU tells the OS
     // that it is done executing the command buffer via the renderingDone semaphore.
