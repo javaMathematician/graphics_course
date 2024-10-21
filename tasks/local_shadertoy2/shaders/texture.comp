@@ -1,0 +1,23 @@
+#version 430
+
+layout (local_size_x = 16, local_size_y = 16) in;
+layout (binding = 0, rgba8) uniform image2D resultImage;
+
+layout (push_constant) uniform AppParameters {
+    float iResolutionX;
+    float iResolutionY;
+
+    float iMouseX;
+    float iMouseY;
+
+    float iTime;
+} appParameters;
+
+void main() {
+    ivec2 fragCoord = ivec2(gl_GlobalInvocationID.xy);
+    vec2 iResolution = vec2(appParameters.iResolutionX, appParameters.iResolutionY);
+    vec2 uv = fragCoord / iResolution.xy;
+    vec3 result = normalize(vec3(uv.x, appParameters.iTime, uv.y));
+
+    imageStore(resultImage, fragCoord, vec4(result, 0.));
+}

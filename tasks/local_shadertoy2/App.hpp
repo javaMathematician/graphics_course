@@ -7,6 +7,7 @@
 
 #include "wsi/OsWindowingManager.hpp"
 
+#include <etna/GraphicsPipeline.hpp>
 #include <etna/Sampler.hpp>
 
 struct AppParameters
@@ -37,8 +38,14 @@ private:
   std::unique_ptr<etna::PerFrameCmdMgr> commandManager;
 
   std::chrono::system_clock::time_point startTime_;
-  etna::ComputePipeline pipeline_;
   AppParameters parameters_;
-  etna::Sampler sampler_;
-  etna::Image tempImage_;
+
+  etna::GraphicsPipeline graphicsPipeline_;
+  etna::ComputePipeline computePipeline_;
+
+  etna::Sampler computeSampler_;
+  etna::Sampler graphicsSampler_;
+
+  etna::Image computeImage_;
+  etna::Image image_;
 };
