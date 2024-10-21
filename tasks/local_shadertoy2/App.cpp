@@ -1,13 +1,14 @@
 #include "App.hpp"
 
+#include <iostream>
 #include <etna/Etna.hpp>
 #include <etna/GlobalContext.hpp>
 #include <etna/PipelineManager.hpp>
 
-
 App::App()
   : resolution{1280, 720}
   , useVsync{true}
+  , parameters_{.resolution = resolution, .mouseCoordinates = {0, 0}, .timedelta = 0.}
 {
   // First, we need to initialize Vulkan, which is not trivial because
   // extensions are required for just about anything.
@@ -73,8 +74,16 @@ App::App()
   // How it is actually performed is not trivial, but we can skip this for now.
   commandManager = etna::get_context().createPerFrameCmdMgr();
 
-
   // TODO: Initialize any additional resources you require here!
+  etna::create_program("shadertoy", {LOCAL_SHADERTOY2_SHADERS_ROOT "toy.comp.spv"});
+  pipeline_ = etna::get_context().getPipelineManager().createComputePipeline("shadertoy", {});
+  sampler_ = etna::Sampler(etna::Sampler::CreateInfo{.name = "sampler"});
+  tempImage_ = etna::get_context().createImage(etna::Image::CreateInfo{
+    .extent = vk::Extent3D{resolution.x, resolution.y, 1},
+    .name = "local_shadertoy",
+    .format = vk::Format::eR8G8B8A8Snorm,
+    .imageUsage = vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eStorage,
+  });
 }
 
 App::~App()
@@ -84,6 +93,7 @@ App::~App()
 
 void App::run()
 {
+  startTime_ = std::chrono::system_clock::now();
   while (!osWindow->isBeingClosed())
   {
     windowing.poll();
@@ -137,9 +147,77 @@ void App::drawFrame()
       // and blit/copy operations.
       etna::flush_barriers(currentCmdBuf);
 
-
       // TODO: Record your commands here!
+      const auto computeInfo = etna::get_shader_program("shadertoy");
 
+      const auto descriptors = etna::create_descriptor_set(
+        computeInfo.getDescriptorLayoutId(0),
+        currentCmdBuf,
+        {etna::Binding{0, tempImage_.genBinding(sampler_.get(), vk::ImageLayout::eGeneral)}});
+
+      const auto vkSet = descriptors.getVkSet();
+
+      currentCmdBuf.bindPipeline(vk::PipelineBindPoint::eCompute, pipeline_.getVkPipeline());
+      currentCmdBuf.bindDescriptorSets(
+        vk::PipelineBindPoint::eCompute, pipeline_.getVkPipelineLayout(), 0, 1, &vkSet, 0, nullptr);
+
+      const auto currentTimeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                       std::chrono::system_clock::now() - startTime_)
+                                       .count();
+      parameters_ = {
+        .resolution = glm::vec2(resolution.x, resolution.y),
+        .mouseCoordinates = osWindow.get()->mouse.freePos,
+        .timedelta = currentTimeMillis / 1000.f};
+
+      etna::set_state(
+        currentCmdBuf,
+        tempImage_.get(),
+        vk::PipelineStageFlagBits2::eComputeShader,
+        vk::AccessFlagBits2::eShaderWrite,
+        vk::ImageLayout::eGeneral,
+        vk::ImageAspectFlagBits::eColor);
+
+      currentCmdBuf.pushConstants(
+        pipeline_.getVkPipelineLayout(),
+        vk::ShaderStageFlagBits::eCompute,
+        0,
+        sizeof(parameters_),
+        &parameters_);
+
+      etna::flush_barriers(currentCmdBuf);
+      currentCmdBuf.dispatch(resolution.x / 32, resolution.y / 32, 1);
+
+      etna::set_state(
+        currentCmdBuf,
+        tempImage_.get(),
+        vk::PipelineStageFlagBits2::eBlit,
+        vk::AccessFlagBits2::eTransferRead,
+        vk::ImageLayout::eTransferSrcOptimal,
+        vk::ImageAspectFlagBits::eColor);
+
+      etna::flush_barriers(currentCmdBuf);
+
+      constexpr auto SUBRESOURCE =
+        vk::ImageSubresourceLayers{vk::ImageAspectFlagBits::eColor, 0, 0, 1};
+      const auto offsets = VULKAN_HPP_NAMESPACE::ArrayWrapper1D<VULKAN_HPP_NAMESPACE::Offset3D, 2>{
+        {vk::Offset3D{0, 0, 0},
+         vk::Offset3D{static_cast<int32_t>(resolution.x), static_cast<int32_t>(resolution.y), 1}}};
+
+      const vk::ImageBlit region = {
+        .srcSubresource = SUBRESOURCE,
+        .srcOffsets = offsets,
+        .dstSubresource = SUBRESOURCE,
+        .dstOffsets = offsets,
+      };
+
+      currentCmdBuf.blitImage(
+        tempImage_.get(),
+        vk::ImageLayout::eTransferSrcOptimal,
+        backbuffer,
+        vk::ImageLayout::eTransferDstOptimal,
+        1,
+        &region,
+        vk::Filter::eLinear);
 
       // At the end of "rendering", we are required to change how the pixels of the
       // swpchain image are laid out in memory to something that is appropriate

@@ -1,18 +1,132 @@
 #version 430
 
-layout(local_size_x = 32, local_size_y = 32) in;
+layout (local_size_x = 32, local_size_y = 32) in;
 
-layout(binding = 0, rgba8) uniform image2D resultImage;
+layout (binding = 0, rgba8) uniform image2D resultImage;
 
+layout (push_constant) uniform AppParameters {
+    float iResolutionX;
+    float iResolutionY;
 
-void main()
-{
-  ivec2 uv = ivec2(gl_GlobalInvocationID.xy);
+    float iMouseX;
+    float iMouseY;
 
-  // TODO: Put your shadertoy code here!
-  // Simple gradient as a test.
-  vec3 color = vec3(vec2(uv) / vec2(1280, 720), 0);
+    float iTime;
+} appParameters;
 
-  if (uv.x < 1280 && uv.y < 720)
-    imageStore(resultImage, uv, vec4(color, 1));
+#define MAX_STEPS 1000
+#define MAX_DIST 40.0
+#define SURFACE_DIST 0.001
+
+vec3 lightPos = vec3(2.0, 5.0, 3.0);
+
+float sphereSDF(vec3 p, vec3 center, float radius) {
+    return length(p - center) - radius;
+}
+
+float planeSDF(vec3 p) {
+    return p.y;
+}
+
+float sceneSDF(vec3 p, float time) {
+    float bounceHeight = abs(sin(time)) * 0.5;
+    vec3 ballCenter = vec3(sin(time) * 1.5, 0.5 + bounceHeight, cos(time) * 1.5);
+
+    float dSphere = sphereSDF(p, ballCenter, 0.5);
+    float dPlane = planeSDF(p);
+
+    return min(dSphere, dPlane);
+}
+
+vec3 getNormal(vec3 p, float time) {
+    float epsilon = 0.001;
+
+    vec3 a = vec3(epsilon, 0, 0);
+    vec3 b = vec3(0, epsilon, 0);
+    vec3 c = vec3(0, 0, epsilon);
+
+    vec3 n = vec3(
+    sceneSDF(p + a, time) - sceneSDF(p - a, time),
+    sceneSDF(p + b, time) - sceneSDF(p - b, time),
+    sceneSDF(p + c, time) - sceneSDF(p - c, time)
+    );
+
+    return normalize(n);
+}
+
+float shadow(vec3 ro, vec3 rd, float time) {
+    float res = 1.0;
+    float t = 0.1;
+
+    for (int i = 0; i < MAX_STEPS; i++) {
+        float h = sceneSDF(ro + rd * t, time);
+
+        if (h < SURFACE_DIST) {
+            return 0.0;
+        }
+
+        res = min(res, 10.0 * h / t);
+        t += h;
+
+        if (t > MAX_DIST) {
+            break;
+        }
+    }
+
+    return res;
+}
+
+vec3 getLight(vec3 p, vec3 normal, vec3 lightDir, vec3 viewDir, float time) {
+    float diff = max(dot(normal, lightDir), 0.0);
+
+    float shadowFactor = shadow(p + normal * SURFACE_DIST * 2.0, lightDir, time);
+    diff *= shadowFactor;
+
+    return vec3(0.1) + vec3(1.0) * diff;
+}
+
+float rayMarch(vec3 ro, vec3 rd, float time) {
+    float dist = 0.0;
+
+    for (int i = 0; i < MAX_STEPS; i++) {
+        vec3 p = ro + rd * dist;
+        float d = sceneSDF(p, time);
+
+        if (d < SURFACE_DIST) {
+            return dist;
+        }
+
+        dist += d;
+
+        if (dist > MAX_DIST) {
+            break;
+        }
+    }
+
+    return MAX_DIST;
+}
+
+void main() {
+    ivec2 fragCoord = ivec2(gl_GlobalInvocationID.xy);
+    vec2 iResolution = vec2(appParameters.iResolutionX, appParameters.iResolutionY);
+
+    vec2 uv = (iResolution.xy * .5 - fragCoord) / iResolution.y;
+    vec3 ro = vec3(0.0, 1.0, 5.0);
+    vec3 rd = normalize(vec3(uv, -1.5));
+    float dist = rayMarch(ro, rd, appParameters.iTime);
+
+    vec3 color = vec3(0.0);
+    if (dist < MAX_DIST) {
+        vec3 p = ro + rd * dist;
+        vec3 normal = getNormal(p, appParameters.iTime);
+        vec3 lightDir = normalize(lightPos - p);
+        vec3 viewDir = normalize(ro - p);
+        color = getLight(p, normal, lightDir, viewDir, appParameters.iTime);
+    }
+
+    vec4 fragColor = vec4(color, 1.);
+
+    if (fragCoord.x < 1280 && fragCoord.y < 720) {
+        imageStore(resultImage, fragCoord, fragColor);
+    }
 }
